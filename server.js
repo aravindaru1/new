@@ -1,17 +1,20 @@
 const express = require('express');
-
 const axios = require('axios');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const crypto = require('crypto');
 
 dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
-app.use(express.json()); // Add this line to parse JSON request bodies
+const Algorithm = process.env.ALGORITHM;
+const apiKey = process.env.ENCRYPTION_KEY;
+
+app.use(express.json());
 app.use(cors());
 
-let previousMinNewsId = null; // store the previous min news id
+let previousMinNewsId = null;
 
 app.get('/news', async (req, res) => {
   try {
@@ -21,37 +24,47 @@ app.get('/news', async (req, res) => {
         'Cache-Control': 'no-store'
       }
     });
-    const data = response.data;
-    previousMinNewsId = data.data.min_news_id; // store the initial min news id
-    res.json(data);
+    const data = JSON.stringify(response.data); // Ensure the data is a string
+    const iv = crypto.randomBytes(16); // Generate a random IV
+    const cipher = crypto.createCipheriv(Algorithm, Buffer.from(apiKey, 'utf-8'), iv);
+    let encryptedData = cipher.update(data, 'utf-8', 'hex');
+    encryptedData += cipher.final('hex');
+
+    previousMinNewsId = response.data.data.min_news_id;
+
+    res.json({
+      data: encryptedData,
+      iv: iv.toString('hex') // Return the IV as a hex string
+    });
   } catch (error) {
     console.error('Error fetching data from Inshorts API:', error);
     res.status(500).json({ error: 'Failed to fetch data' });
   }
 });
+
 app.post('/news-more', async (req, res) => {
   try {
-    console.log('Received POST request to /scrape-more');
     const minNewsId = req.body.minNewsId;
-    console.log(`minNewsId: ${minNewsId}`);
     const url = `${process.env.API}&news_offset=${minNewsId}`;
-    console.log(`Fetching news from: ${url}`);
     const response = await axios.get(url, {
       headers: {
         'Cache-Control': 'no-store'
       }
     });
-    console.log('Response received from Inshorts API');
-    const data = response.data;
-    res.json(data);
+    const data = JSON.stringify(response.data); // Ensure the data is a string
+    const iv = crypto.randomBytes(16); // Generate a random IV
+    const cipher = crypto.createCipheriv(Algorithm, Buffer.from(apiKey, 'utf-8'), iv);
+    let encryptedData = cipher.update(data, 'utf-8', 'hex');
+    encryptedData += cipher.final('hex');
+
+    res.json({
+      data: encryptedData,
+      iv: iv.toString('hex') // Return the IV as a hex string
+    });
   } catch (error) {
-    console.error('Error fetching more data from Inshorts API:', error);
     res.status(500).json({ error: 'Failed to fetch more data' });
   }
 });
-
-
-
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
